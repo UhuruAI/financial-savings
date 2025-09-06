@@ -1,1 +1,1 @@
-# financial-savings
+# fintech-app-alpha
