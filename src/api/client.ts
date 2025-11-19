@@ -1,23 +1,28 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
-import Constants from 'expo-constants';
 import { secureStorage } from '../utils/storage';
-import { STORAGE_KEYS, ERROR_MESSAGES, APP_CONFIG } from '../constants';
+import { STORAGE_KEYS, ERROR_MESSAGES } from '../constants';
+import apiConfig, { logApiConfig } from '../config/api';
+import setupMockInterceptor from './mockInterceptor';
 
 /**
  * API Client Configuration
  */
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'http://localhost:3000/api';
+// Log configuration in development
+logApiConfig();
 
 // Create axios instance
 const apiClient: AxiosInstance = axios.create({
-  baseURL: API_URL,
-  timeout: APP_CONFIG.apiTimeout,
+  baseURL: apiConfig.baseURL,
+  timeout: apiConfig.timeout,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
   },
 });
+
+// Setup mock data interceptor if enabled
+setupMockInterceptor(apiClient);
 
 // Request interceptor - Add auth token to requests
 apiClient.interceptors.request.use(
@@ -78,7 +83,7 @@ apiClient.interceptors.response.use(
 
         if (refreshToken) {
           // Attempt to refresh token
-          const response = await axios.post(`${API_URL}/auth/refresh`, {
+          const response = await axios.post(`${apiConfig.baseURL}/auth/refresh`, {
             refreshToken,
           });
 
@@ -100,7 +105,7 @@ apiClient.interceptors.response.use(
         await secureStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
         await secureStorage.removeItem(STORAGE_KEYS.USER_DATA);
 
-        // TODO: Navigate to login screen
+        // User will be redirected to login by the app/index.tsx auth check
         return Promise.reject(refreshError);
       }
     }
