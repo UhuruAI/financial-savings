@@ -23,6 +23,10 @@ export default function RootLayout() {
     <Provider store={store}>
       <PersistGate loading={<LoadingView />} persistor={persistor}>
         <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="auth/welcome" options={{ headerShown: false }} />
+          <Stack.Screen name="auth/login" options={{ headerShown: false }} />
+          <Stack.Screen name="auth/register" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="+not-found" />
         </Stack>

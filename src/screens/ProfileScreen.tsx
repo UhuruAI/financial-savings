@@ -22,6 +22,7 @@ import {
   Target,
   Moon,
 } from 'lucide-react-native';
+import { router } from 'expo-router';
 
 // Redux
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -103,7 +104,8 @@ export default function ProfileScreen() {
         onPress: async () => {
           try {
             await dispatch(logoutUser()).unwrap();
-            // Navigation to login screen would happen here in a real app
+            // Navigate to welcome screen after successful logout
+            router.replace('/auth/welcome');
           } catch (err) {
             console.error('Logout failed:', err);
             Alert.alert('Error', 'Failed to sign out. Please try again.');
