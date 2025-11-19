@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Switch,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -22,15 +23,95 @@ import {
   Moon,
 } from 'lucide-react-native';
 
-export default function ProfileScreen() {
-  const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
-  const [darkModeEnabled, setDarkModeEnabled] = React.useState(true);
+// Redux
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { logoutUser } from '../store/slices/authSlice';
+import { updatePreferences } from '../store/slices/userSlice';
 
-  const stats = [
-    { label: 'Goals Completed', value: '12', icon: Target, color: '#10B981' },
-    { label: 'Total Saved', value: '$8.2K', icon: TrendingUp, color: '#3B82F6' },
-    { label: 'Achievements', value: '24', icon: Award, color: '#F59E0B' },
-  ];
+// Utils
+import { formatCurrency } from '../utils/formatting';
+
+export default function ProfileScreen() {
+  const dispatch = useAppDispatch();
+
+  // Redux state
+  const { user } = useAppSelector((state) => state.auth);
+  const { achievements, preferences } = useAppSelector((state) => state.user);
+  const { goals } = useAppSelector((state) => state.goals);
+
+  // Calculate dynamic stats from Redux state
+  const stats = useMemo(() => {
+    const completedGoals = goals.filter(
+      (g) => g.current >= g.target
+    ).length;
+    const totalSaved = goals.reduce((sum, g) => sum + g.current, 0);
+    const achievementsCount = achievements.filter(
+      (a) => a.unlocked
+    ).length;
+
+    return [
+      {
+        label: 'Goals Completed',
+        value: completedGoals.toString(),
+        icon: Target,
+        color: '#10B981',
+      },
+      {
+        label: 'Total Saved',
+        value: formatCurrency(totalSaved, 'USD', false).replace('$', ''),
+        icon: TrendingUp,
+        color: '#3B82F6',
+      },
+      {
+        label: 'Achievements',
+        value: achievementsCount.toString(),
+        icon: Award,
+        color: '#F59E0B',
+      },
+    ];
+  }, [goals, achievements]);
+
+  // Handlers for preference changes
+  const handleNotificationsChange = (value: boolean) => {
+    dispatch(
+      updatePreferences({
+        ...preferences,
+        notifications: value,
+      })
+    );
+  };
+
+  const handleDarkModeChange = (value: boolean) => {
+    dispatch(
+      updatePreferences({
+        ...preferences,
+        darkMode: value,
+      })
+    );
+  };
+
+  // Logout handler
+  const handleLogout = () => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await dispatch(logoutUser()).unwrap();
+            // Navigation to login screen would happen here in a real app
+          } catch (err) {
+            console.error('Logout failed:', err);
+            Alert.alert('Error', 'Failed to sign out. Please try again.');
+          }
+        },
+      },
+    ]);
+  };
 
   const menuItems = [
     {
@@ -50,16 +131,16 @@ export default function ProfileScreen() {
       icon: Bell,
       color: '#3B82F6',
       hasSwitch: true,
-      switchValue: notificationsEnabled,
-      onSwitchChange: setNotificationsEnabled,
+      switchValue: preferences?.notifications ?? true,
+      onSwitchChange: handleNotificationsChange,
     },
     {
       title: 'Dark Mode',
       icon: Moon,
       color: '#6B7280',
       hasSwitch: true,
-      switchValue: darkModeEnabled,
-      onSwitchChange: setDarkModeEnabled,
+      switchValue: preferences?.darkMode ?? true,
+      onSwitchChange: handleDarkModeChange,
     },
     {
       title: 'Help & Support',
@@ -67,15 +148,6 @@ export default function ProfileScreen() {
       color: '#F59E0B',
       hasSwitch: false,
     },
-  ];
-
-  const achievements = [
-    { title: 'First Goal', emoji: '🎯', unlocked: true },
-    { title: 'Saver', emoji: '💰', unlocked: true },
-    { title: 'Investor', emoji: '📈', unlocked: true },
-    { title: 'Streak Master', emoji: '🔥', unlocked: true },
-    { title: 'Big Spender', emoji: '💎', unlocked: false },
-    { title: 'Money Master', emoji: '👑', unlocked: false },
   ];
 
   return (
@@ -98,14 +170,22 @@ export default function ProfileScreen() {
         <View style={styles.profileInfo}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>A</Text>
+              <Text style={styles.avatarText}>
+                {user?.name?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || 'U'}
+              </Text>
             </View>
             <View style={styles.onlineIndicator} />
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>Alex Johnson</Text>
-            <Text style={styles.userEmail}>alex.johnson@email.com</Text>
-            <Text style={styles.joinDate}>Member since Feb 2024</Text>
+            <Text style={styles.userName}>
+              {user?.name || 'User'}
+            </Text>
+            <Text style={styles.userEmail}>
+              {user?.email || 'user@email.com'}
+            </Text>
+            <Text style={styles.joinDate}>
+              Member since {user?.createdAt ? new Date(user.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Recently'}
+            </Text>
           </View>
         </View>
         <TouchableOpacity style={styles.editButton}>
@@ -208,7 +288,7 @@ export default function ProfileScreen() {
       </View>
 
       {/* Logout Button */}
-      <TouchableOpacity style={styles.logoutButton}>
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <LogOut color="#EF4444" size={20} />
         <Text style={styles.logoutText}>Sign Out</Text>
       </TouchableOpacity>

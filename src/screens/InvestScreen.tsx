@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -17,48 +18,46 @@ import {
   Zap,
 } from 'lucide-react-native';
 
+// Redux
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { fetchInvestments } from '../store/slices/investmentsSlice';
+
+// Utils
+import { formatCurrency, formatPercentage } from '../utils/formatting';
+
 const { width } = Dimensions.get('window');
 
 export default function InvestScreen() {
-  const portfolioValue = 2847.92;
-  const todayChange = 42.67;
-  const todayChangePercent = 1.52;
+  const dispatch = useAppDispatch();
 
-  const investments = [
-    {
-      name: 'Tech Growth ETF',
-      symbol: 'TECH',
-      value: 1245.67,
-      change: 23.45,
-      changePercent: 1.92,
-      color: '#10B981',
-    },
-    {
-      name: 'S&P 500 Index',
-      symbol: 'SPY',
-      value: 892.33,
-      change: 12.22,
-      changePercent: 1.39,
-      color: '#3B82F6',
-    },
-    {
-      name: 'Crypto Bundle',
-      symbol: 'CRYPTO',
-      value: 456.78,
-      change: -8.91,
-      changePercent: -1.91,
-      color: '#F59E0B',
-    },
-    {
-      name: 'Clean Energy',
-      symbol: 'CLEAN',
-      value: 253.14,
-      change: 15.91,
-      changePercent: 6.72,
-      color: '#10B981',
-    },
-  ];
+  // Redux state
+  const { investments, portfolioValue, todayChange, isLoading, error } =
+    useAppSelector((state) => state.investments);
 
+  // Fetch data on mount
+  useEffect(() => {
+    dispatch(fetchInvestments());
+  }, [dispatch]);
+
+  // Auto-clear error messages
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        // Error will be cleared by user action or navigation
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  // Calculate portfolio change percentage
+  const todayChangePercent = useMemo(() => {
+    if (portfolioValue > 0 && todayChange) {
+      return ((todayChange / (portfolioValue - todayChange)) * 100).toFixed(2);
+    }
+    return '0.00';
+  }, [portfolioValue, todayChange]);
+
+  // Hardcoded recommendations (would come from API in real app)
   const recommendations = [
     {
       title: 'Diversify with Bonds',
@@ -83,8 +82,27 @@ export default function InvestScreen() {
     },
   ];
 
+  // Loading state
+  if (isLoading && investments.length === 0) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#8B5CF6" />
+        <Text style={styles.loadingText}>Loading portfolio...</Text>
+      </View>
+    );
+  }
+
+  const isPositiveChange = todayChange >= 0;
+
   return (
     <ScrollView style={styles.container}>
+      {/* Error Message */}
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Invest & Grow</Text>
@@ -100,16 +118,43 @@ export default function InvestScreen() {
       >
         <View style={styles.portfolioHeader}>
           <Text style={styles.portfolioLabel}>Portfolio Value</Text>
-          <View style={styles.changeIndicator}>
-            <TrendingUp color="#10B981" size={16} />
-            <Text style={styles.changeText}>+{todayChangePercent}%</Text>
+          <View
+            style={[
+              styles.changeIndicator,
+              {
+                backgroundColor: isPositiveChange
+                  ? 'rgba(16, 185, 129, 0.1)'
+                  : 'rgba(239, 68, 68, 0.1)',
+              },
+            ]}
+          >
+            {isPositiveChange ? (
+              <TrendingUp color="#10B981" size={16} />
+            ) : (
+              <TrendingDown color="#EF4444" size={16} />
+            )}
+            <Text
+              style={[
+                styles.changeText,
+                { color: isPositiveChange ? '#10B981' : '#EF4444' },
+              ]}
+            >
+              {isPositiveChange ? '+' : ''}
+              {todayChangePercent}%
+            </Text>
           </View>
         </View>
         <Text style={styles.portfolioValue}>
-          ${portfolioValue.toLocaleString()}
+          {formatCurrency(portfolioValue)}
         </Text>
-        <Text style={styles.portfolioChange}>
-          +${todayChange.toFixed(2)} today
+        <Text
+          style={[
+            styles.portfolioChange,
+            { color: isPositiveChange ? '#10B981' : '#EF4444' },
+          ]}
+        >
+          {isPositiveChange ? '+' : ''}
+          {formatCurrency(Math.abs(todayChange))} today
         </Text>
       </LinearGradient>
 
@@ -149,11 +194,27 @@ export default function InvestScreen() {
             <Text style={styles.seeAll}>View All</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.holdingsList}>
-          {investments.map((investment, index) => (
-            <InvestmentCard key={index} investment={investment} />
-          ))}
-        </View>
+        {investments.length > 0 ? (
+          <View style={styles.holdingsList}>
+            {investments.map((investment, index) => (
+              <InvestmentCard key={investment.id || index} investment={investment} />
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyInvestments}>
+            <Text style={styles.emptyInvestmentsEmoji}>📈</Text>
+            <Text style={styles.emptyInvestmentsTitle}>No Investments Yet</Text>
+            <Text style={styles.emptyInvestmentsSubtitle}>
+              Start investing to grow your wealth
+            </Text>
+            <TouchableOpacity style={styles.emptyInvestmentsButton}>
+              <DollarSign color="#ffffff" size={20} />
+              <Text style={styles.emptyInvestmentsButtonText}>
+                Start Investing
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {/* Recommendations */}
@@ -183,16 +244,30 @@ export default function InvestScreen() {
 function InvestmentCard({ investment }: { investment: any }) {
   const isPositive = investment.change >= 0;
 
+  // Calculate percentage if not provided
+  const changePercent =
+    investment.changePercent ||
+    (investment.value > 0
+      ? ((investment.change / (investment.value - investment.change)) * 100).toFixed(
+          2
+        )
+      : 0);
+
+  // Calculate fill percentage for progress bar (can be based on allocation or other metric)
+  const fillPercentage = investment.allocation || 60;
+
   return (
     <View style={styles.investmentCard}>
       <View style={styles.investmentHeader}>
         <View>
-          <Text style={styles.investmentName}>{investment.name}</Text>
+          <Text style={styles.investmentName}>
+            {investment.name || investment.symbol}
+          </Text>
           <Text style={styles.investmentSymbol}>{investment.symbol}</Text>
         </View>
         <View style={styles.investmentValues}>
           <Text style={styles.investmentValue}>
-            ${investment.value.toLocaleString()}
+            {formatCurrency(investment.value || investment.currentValue)}
           </Text>
           <View style={styles.investmentChange}>
             {isPositive ? (
@@ -200,17 +275,23 @@ function InvestmentCard({ investment }: { investment: any }) {
             ) : (
               <TrendingDown color="#EF4444" size={14} />
             )}
-            <Text style={[
-              styles.changeValue,
-              { color: isPositive ? '#10B981' : '#EF4444' }
-            ]}>
-              {isPositive ? '+' : ''}${Math.abs(investment.change).toFixed(2)}
+            <Text
+              style={[
+                styles.changeValue,
+                { color: isPositive ? '#10B981' : '#EF4444' },
+              ]}
+            >
+              {isPositive ? '+' : ''}
+              {formatCurrency(Math.abs(investment.change))}
             </Text>
-            <Text style={[
-              styles.changePercent,
-              { color: isPositive ? '#10B981' : '#EF4444' }
-            ]}>
-              ({isPositive ? '+' : ''}{investment.changePercent.toFixed(2)}%)
+            <Text
+              style={[
+                styles.changePercent,
+                { color: isPositive ? '#10B981' : '#EF4444' },
+              ]}
+            >
+              ({isPositive ? '+' : ''}
+              {changePercent}%)
             </Text>
           </View>
         </View>
@@ -219,7 +300,10 @@ function InvestmentCard({ investment }: { investment: any }) {
         <View
           style={[
             styles.investmentBarFill,
-            { backgroundColor: investment.color, width: '60%' }
+            {
+              backgroundColor: investment.color || '#8B5CF6',
+              width: `${Math.min(fillPercentage, 100)}%`,
+            },
           ]}
         />
       </View>
@@ -506,6 +590,65 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   learnButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#9CA3AF',
+    fontSize: 16,
+    marginTop: 16,
+  },
+  errorContainer: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 8,
+  },
+  errorText: {
+    color: '#ffffff',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  emptyInvestments: {
+    backgroundColor: '#1E293B',
+    borderRadius: 16,
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyInvestmentsEmoji: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  emptyInvestmentsTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyInvestmentsSubtitle: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  emptyInvestmentsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#8B5CF6',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 6,
+  },
+  emptyInvestmentsButtonText: {
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',

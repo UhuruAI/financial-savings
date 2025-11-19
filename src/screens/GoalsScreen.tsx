@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,65 +8,128 @@ import {
   Modal,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Plus, Target, Calendar, DollarSign, X } from 'lucide-react-native';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import {
+  fetchGoals,
+  createGoal,
+  updateGoal,
+  deleteGoal,
+  addMoneyToGoal,
+  clearError,
+  clearSuccessMessage,
+} from '../store/slices/goalsSlice';
+import { formatCurrency } from '../utils/formatting';
+import { COLORS } from '../constants/theme';
+import { GOAL_EMOJIS } from '../constants';
+
+const GOAL_COLORS = [
+  '#8B5CF6',
+  '#EC4899',
+  '#10B981',
+  '#F59E0B',
+  '#3B82F6',
+  '#EF4444',
+];
 
 export default function GoalsScreen() {
+  const dispatch = useAppDispatch();
+  const { goals, isLoading, error, successMessage } = useAppSelector((state) => state.goals);
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newGoal, setNewGoal] = useState({
     title: '',
     target: '',
     emoji: '🎯',
+    deadline: '',
   });
 
-  const goals = [
-    {
-      id: 1,
-      title: 'New iPhone 15',
-      target: 1200,
-      current: 750,
-      emoji: '📱',
-      deadline: '2024-06-01',
-      color: '#8B5CF6',
-    },
-    {
-      id: 2,
-      title: 'Summer Vacation',
-      target: 3000,
-      current: 1850,
-      emoji: '🏖️',
-      deadline: '2024-07-15',
-      color: '#EC4899',
-    },
-    {
-      id: 3,
-      title: 'Gaming Setup',
-      target: 2500,
-      current: 900,
-      emoji: '🎮',
-      deadline: '2024-08-30',
-      color: '#10B981',
-    },
-    {
-      id: 4,
-      title: 'Emergency Fund',
-      target: 5000,
-      current: 2100,
-      emoji: '🛡️',
-      deadline: '2024-12-31',
-      color: '#F59E0B',
-    },
-  ];
+  // Fetch goals on mount
+  useEffect(() => {
+    dispatch(fetchGoals());
+  }, [dispatch]);
 
-  const createGoal = () => {
+  // Clear error after 3 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        dispatch(clearError());
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, dispatch]);
+
+  // Clear success message after 3 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => {
+        dispatch(clearSuccessMessage());
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage, dispatch]);
+
+  // Calculate stats from Redux goals
+  const activeGoals = goals.filter((g) => g.current < g.target);
+  const totalSaved = goals.reduce((sum, goal) => sum + goal.current, 0);
+  const avgProgress =
+    goals.length > 0
+      ? Math.round(
+          goals.reduce((sum, g) => sum + (g.current / g.target) * 100, 0) / goals.length
+        )
+      : 0;
+
+  const handleCreateGoal = async () => {
     if (!newGoal.title || !newGoal.target) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-    setShowCreateModal(false);
-    setNewGoal({ title: '', target: '', emoji: '🎯' });
-    Alert.alert('Success', 'Goal created successfully!');
+
+    const targetAmount = parseFloat(newGoal.target);
+    if (isNaN(targetAmount) || targetAmount <= 0) {
+      Alert.alert('Error', 'Please enter a valid target amount');
+      return;
+    }
+
+    try {
+      // Pick a random color for the goal
+      const randomColor = GOAL_COLORS[Math.floor(Math.random() * GOAL_COLORS.length)];
+
+      await dispatch(
+        createGoal({
+          title: newGoal.title,
+          target: targetAmount,
+          emoji: newGoal.emoji,
+          deadline: newGoal.deadline || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default: 90 days from now
+          color: randomColor,
+        })
+      ).unwrap();
+
+      setShowCreateModal(false);
+      setNewGoal({ title: '', target: '', emoji: '🎯', deadline: '' });
+    } catch (err) {
+      console.error('Failed to create goal:', err);
+    }
+  };
+
+  const handleDeleteGoal = async (goalId: string) => {
+    Alert.alert('Delete Goal', 'Are you sure you want to delete this goal?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await dispatch(deleteGoal(goalId)).unwrap();
+          } catch (err) {
+            console.error('Failed to delete goal:', err);
+          }
+        },
+      },
+    ]);
   };
 
   return (
@@ -82,28 +145,65 @@ export default function GoalsScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Success/Error Messages */}
+      {successMessage && (
+        <View style={styles.successMessage}>
+          <Text style={styles.successText}>{successMessage}</Text>
+        </View>
+      )}
+      {error && (
+        <View style={styles.errorMessage}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+
       {/* Stats Overview */}
       <View style={styles.statsContainer}>
         <View style={styles.statCard}>
-          <Text style={styles.statValue}>4</Text>
+          <Text style={styles.statValue}>{activeGoals.length}</Text>
           <Text style={styles.statLabel}>Active Goals</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statValue}>$5,600</Text>
+          <Text style={styles.statValue}>{formatCurrency(totalSaved, 'USD', false)}</Text>
           <Text style={styles.statLabel}>Total Saved</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statValue}>68%</Text>
+          <Text style={styles.statValue}>{avgProgress}%</Text>
           <Text style={styles.statLabel}>Avg Progress</Text>
         </View>
       </View>
 
       {/* Goals List */}
-      <ScrollView style={styles.goalsList}>
-        {goals.map((goal) => (
-          <GoalCard key={goal.id} goal={goal} />
-        ))}
-      </ScrollView>
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Loading goals...</Text>
+        </View>
+      ) : goals.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyEmoji}>🎯</Text>
+          <Text style={styles.emptyTitle}>No Goals Yet</Text>
+          <Text style={styles.emptySubtitle}>
+            Create your first savings goal to get started!
+          </Text>
+          <TouchableOpacity
+            style={styles.emptyButton}
+            onPress={() => setShowCreateModal(true)}
+          >
+            <Text style={styles.emptyButtonText}>Create Goal</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView style={styles.goalsList}>
+          {goals.map((goal) => (
+            <GoalCard
+              key={goal.id}
+              goal={goal}
+              onDelete={() => handleDeleteGoal(goal.id)}
+            />
+          ))}
+        </ScrollView>
+      )}
 
       {/* Create Goal Modal */}
       <Modal
@@ -122,7 +222,7 @@ export default function GoalsScreen() {
             </View>
 
             <View style={styles.emojiSelector}>
-              {['🎯', '📱', '🏖️', '🎮', '🚗', '🏠', '💍', '🎓'].map((emoji) => (
+              {GOAL_EMOJIS.map((emoji) => (
                 <TouchableOpacity
                   key={emoji}
                   style={[
@@ -153,8 +253,24 @@ export default function GoalsScreen() {
               keyboardType="numeric"
             />
 
-            <TouchableOpacity style={styles.createButton} onPress={createGoal}>
-              <Text style={styles.createButtonText}>Create Goal</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Deadline (optional, YYYY-MM-DD)"
+              placeholderTextColor="#9CA3AF"
+              value={newGoal.deadline}
+              onChangeText={(deadline) => setNewGoal({ ...newGoal, deadline })}
+            />
+
+            <TouchableOpacity
+              style={styles.createButton}
+              onPress={handleCreateGoal}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.createButtonText}>Create Goal</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -163,9 +279,34 @@ export default function GoalsScreen() {
   );
 }
 
-function GoalCard({ goal }: { goal: any }) {
+function GoalCard({ goal, onDelete }: { goal: any; onDelete: () => void }) {
+  const dispatch = useAppDispatch();
+  const [addAmount, setAddAmount] = useState('');
+  const [showAddMoney, setShowAddMoney] = useState(false);
+
   const progress = (goal.current / goal.target) * 100;
   const remaining = goal.target - goal.current;
+
+  const handleAddMoney = async () => {
+    const amount = parseFloat(addAmount);
+    if (isNaN(amount) || amount <= 0) {
+      Alert.alert('Error', 'Please enter a valid amount');
+      return;
+    }
+
+    try {
+      await dispatch(
+        addMoneyToGoal({
+          id: goal.id,
+          data: { amount },
+        })
+      ).unwrap();
+      setAddAmount('');
+      setShowAddMoney(false);
+    } catch (err) {
+      console.error('Failed to add money:', err);
+    }
+  };
 
   return (
     <View style={[styles.goalCard, { borderLeftColor: goal.color }]}>
@@ -177,19 +318,34 @@ function GoalCard({ goal }: { goal: any }) {
             <Text style={styles.goalDeadline}>Target: {goal.deadline}</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.addMoneyButton}>
+        <TouchableOpacity
+          style={styles.addMoneyButton}
+          onPress={() => setShowAddMoney(!showAddMoney)}
+        >
           <Plus color="#8B5CF6" size={20} />
         </TouchableOpacity>
       </View>
 
+      {showAddMoney && (
+        <View style={styles.addMoneySection}>
+          <TextInput
+            style={styles.addMoneyInput}
+            placeholder="Amount to add"
+            placeholderTextColor="#9CA3AF"
+            value={addAmount}
+            onChangeText={setAddAmount}
+            keyboardType="numeric"
+          />
+          <TouchableOpacity style={styles.addMoneyConfirm} onPress={handleAddMoney}>
+            <Text style={styles.addMoneyConfirmText}>Add</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.goalProgress}>
         <View style={styles.amountRow}>
-          <Text style={styles.currentAmount}>
-            ${goal.current.toLocaleString()}
-          </Text>
-          <Text style={styles.targetAmount}>
-            of ${goal.target.toLocaleString()}
-          </Text>
+          <Text style={styles.currentAmount}>{formatCurrency(goal.current, 'USD', false)}</Text>
+          <Text style={styles.targetAmount}>of {formatCurrency(goal.target, 'USD', false)}</Text>
         </View>
 
         <View style={styles.progressBar}>
@@ -203,18 +359,21 @@ function GoalCard({ goal }: { goal: any }) {
 
         <View style={styles.progressStats}>
           <Text style={styles.progressPercent}>{Math.round(progress)}% complete</Text>
-          <Text style={styles.remainingAmount}>${remaining.toLocaleString()} to go</Text>
+          <Text style={styles.remainingAmount}>{formatCurrency(remaining, 'USD', false)} to go</Text>
         </View>
       </View>
 
       <View style={styles.goalActions}>
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => setShowAddMoney(!showAddMoney)}
+        >
           <DollarSign color="#10B981" size={16} />
           <Text style={styles.actionText}>Add Money</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
-          <Calendar color="#8B5CF6" size={16} />
-          <Text style={styles.actionText}>Edit</Text>
+        <TouchableOpacity style={styles.actionButton} onPress={onDelete}>
+          <X color="#EF4444" size={16} />
+          <Text style={styles.actionText}>Delete</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -247,6 +406,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  successMessage: {
+    backgroundColor: '#10B981',
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 8,
+  },
+  successText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  errorMessage: {
+    backgroundColor: '#EF4444',
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 8,
+  },
+  errorText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   statsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
@@ -269,6 +454,51 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9CA3AF',
     marginTop: 4,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 60,
+  },
+  loadingText: {
+    color: '#9CA3AF',
+    fontSize: 16,
+    marginTop: 12,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingTop: 60,
+  },
+  emptyEmoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 16,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  emptyButton: {
+    backgroundColor: '#8B5CF6',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
+  emptyButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   goalsList: {
     flex: 1,
@@ -316,6 +546,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#374151',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  addMoneySection: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    gap: 8,
+  },
+  addMoneyInput: {
+    flex: 1,
+    backgroundColor: '#374151',
+    borderRadius: 8,
+    padding: 12,
+    color: '#ffffff',
+    fontSize: 16,
+  },
+  addMoneyConfirm: {
+    backgroundColor: '#10B981',
+    borderRadius: 8,
+    paddingHorizontal: 20,
+    justifyContent: 'center',
+  },
+  addMoneyConfirmText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   goalProgress: {
     marginBottom: 16,
